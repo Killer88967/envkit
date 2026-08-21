@@ -1,1 +1,1 @@
-# zero-dep-package
+# envkit

@@ -1,0 +1,42 @@
+{
+  "name": "envkit",
+  "version": "0.1.0",
+  "description": "Zero-dependency environment inspection, diffing, validation, and deployment sync toolkit.",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "bin": {
+    "envkit": "./dist/cli/index.js"
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": [
+    "env",
+    "environment",
+    "dotenv",
+    "vercel",
+    "cloudflare",
+    "configuration",
+    "cli"
+  ],
+  "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "tsup": "^8.5.0",
+    "typescript": "^5.9.0"
+  }
+}
