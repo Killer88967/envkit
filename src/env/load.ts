@@ -48,3 +48,13 @@ export function loadEnvSources(options: EnvLoadOptions = {}): EnvSource[] {
 
   return sources;
 }
+
+export function mergeEnvSources(sources: EnvSource[]): EnvRecord {
+  const result: EnvRecord = {};
+
+  for (const source of sources) {
+    Object.assign(result, source.values);
+  }
+
+  return result;
+}
