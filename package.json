@@ -16,7 +16,9 @@
   "bin": {
     "envkit": "./dist/cli/index.js"
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsup",
     "dev": "tsup --watch",
@@ -36,6 +38,7 @@
     "node": ">=20"
   },
   "devDependencies": {
+    "@types/node": "^26.2.0",
     "tsup": "^8.5.0",
     "typescript": "^5.9.0"
   }
