@@ -7,7 +7,6 @@ const SECRET_PATTERNS = [
   /private[_-]?key/i,
   /client[_-]?secret/i,
   /auth[_-]?key/i,
-  /credential/i,
   /credentials?/i,
 ];
 
