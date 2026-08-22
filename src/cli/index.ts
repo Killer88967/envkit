@@ -39,6 +39,7 @@ ${pc.bold("Commands")}
   ${pc.cyan("diff")} <left> <right>   Compare two environment files
   ${pc.cyan("diff vercel")}           Compare local variables with Vercel
   ${pc.cyan("pull vercel")}           Pull Vercel variables to a local file
+  ${pc.cyan("push vercel")}           Push local variables to Vercel
   ${pc.cyan("doctor")}                Check the environment setup for common problems
   ${pc.cyan("vercel")}                List Vercel environment variables
   ${pc.cyan("help")}                  Show this help message
@@ -410,6 +411,177 @@ async function pullVercel(): Promise<void> {
   }
 }
 
+async function pushVercel(): Promise<void> {
+  let project;
+
+  try {
+    project = vercelProvider.detect();
+  } catch (error) {
+    printError(error instanceof Error ? error.message : String(error));
+    process.exitCode = 1;
+    return;
+  }
+
+  if (!project) {
+    printError(
+      "No linked Vercel project found. Expected .vercel/project.json.",
+    );
+    process.exitCode = 1;
+    return;
+  }
+
+  let target: VercelTarget | undefined;
+
+  try {
+    target = await resolveVercelTarget();
+  } catch (error) {
+    printError(error instanceof Error ? error.message : String(error));
+    process.exitCode = 1;
+    return;
+  }
+
+  if (!target) {
+    printError("A Vercel environment is required when pushing variables.");
+    process.exitCode = 1;
+    return;
+  }
+
+  const sources = loadEnvSources({
+    includeProcessEnv: false,
+  });
+
+  const local = mergeEnvSources(sources);
+
+  if (Object.keys(local).length === 0) {
+    printWarning("No local environment variables found.");
+    return;
+  }
+
+  let remote;
+
+  try {
+    remote = await vercelProvider.list(project);
+  } catch (error) {
+    printError(error instanceof Error ? error.message : String(error));
+    process.exitCode = 1;
+    return;
+  }
+
+  const scopedRemote = remote.filter((variable) =>
+    variable.targets.includes(target),
+  );
+
+  let resolvedRemote: ResolvedRemoteEnvVariable[];
+
+  try {
+    resolvedRemote = await Promise.all(
+      scopedRemote.map(async (variable) => ({
+        ...variable,
+        value: await vercelProvider.getValue(project, variable),
+      })),
+    );
+  } catch (error) {
+    printError(error instanceof Error ? error.message : String(error));
+    process.exitCode = 1;
+    return;
+  }
+
+  const differences = diffRemoteEnv(local, resolvedRemote);
+
+  const actionable = differences.filter(
+    (entry) => entry.type === "added" || entry.type === "changed",
+  );
+
+  const unknown = differences.filter((entry) => entry.type === "unknown");
+
+  if (actionable.length === 0 && unknown.length === 0) {
+    printSuccess(`Vercel ${target} environment is already up to date.`);
+    return;
+  }
+
+  console.log(`\n${pc.bold(`Vercel ${target}`)}\n`);
+
+  for (const entry of actionable) {
+    console.log(`${printDiffSymbol(entry.type)} ${pc.bold(entry.key)}`);
+  }
+
+  for (const entry of unknown) {
+    console.log(
+      `${printDiffSymbol(entry.type)} ${pc.bold(entry.key)} ${pc.dim(
+        "(sensitive, skipped)",
+      )}`,
+    );
+  }
+
+  if (actionable.length === 0) {
+    printWarning("No safely comparable variables need to be pushed.");
+    return;
+  }
+
+  if (!process.stdin.isTTY || !process.stdout.isTTY) {
+    printError("Push requires confirmation in interactive mode.");
+    process.exitCode = 1;
+    return;
+  }
+
+  let proceed: boolean;
+
+  try {
+    proceed = await confirm({
+      message: `Push ${actionable.length} variable${
+        actionable.length === 1 ? "" : "s"
+      } to Vercel ${target}?`,
+      default: false,
+    });
+  } catch (error) {
+    printError(error instanceof Error ? error.message : String(error));
+    process.exitCode = 1;
+    return;
+  }
+
+  if (!proceed) {
+    printWarning("Push cancelled.");
+    return;
+  }
+
+  for (const entry of actionable) {
+    const value = local[entry.key];
+
+    if (value === undefined) {
+      continue;
+    }
+
+    const existing = scopedRemote.find(
+      (variable) => variable.key === entry.key,
+    );
+
+    try {
+      await vercelProvider.upsert(project, {
+        key: entry.key,
+        value,
+        target,
+        type: existing?.type === "plain" ? "plain" : "encrypted",
+      });
+    } catch (error) {
+      printError(error instanceof Error ? error.message : String(error));
+      process.exitCode = 1;
+      return;
+    }
+
+    printSuccess(`Pushed ${entry.key}.`);
+  }
+
+  printSuccess(`Vercel ${target} environment updated.`);
+
+  if (unknown.length > 0) {
+    printWarning(
+      `${unknown.length} sensitive variable${
+        unknown.length === 1 ? " was" : "s were"
+      } skipped because Vercel does not expose their current values.`,
+    );
+  }
+}
+
 function doctor(): void {
   const checks = runDoctor();
 
@@ -506,6 +678,17 @@ switch (command) {
 
     printError("Unknown pull provider.");
     console.log(`${pc.dim("Usage:")} ${pc.cyan("envkit pull vercel")}`);
+    process.exitCode = 1;
+    break;
+
+  case "push":
+    if (args[0] === "vercel") {
+      await pushVercel();
+      break;
+    }
+
+    printError("Unknown push provider.");
+    console.log(`${pc.dim("Usage:")} ${pc.cyan("envkit push vercel")}`);
     process.exitCode = 1;
     break;
 

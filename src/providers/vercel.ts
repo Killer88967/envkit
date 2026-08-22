@@ -5,6 +5,7 @@ import type {
   ProviderAdapter,
   ProviderProject,
   RemoteEnvVariable,
+  UpsertRemoteEnvVariable,
 } from "./types";
 
 interface VercelProjectFile {
@@ -173,5 +174,40 @@ export const vercelProvider: ProviderAdapter = {
     }
 
     return typeof data.value === "string" ? data.value : undefined;
+  },
+
+  async upsert(project, variable, options = {}): Promise<void> {
+    const token = getToken(options.token);
+
+    const url = new URL(
+      `https://api.vercel.com/v10/projects/${encodeURIComponent(
+        project.projectId,
+      )}/env`,
+    );
+
+    url.searchParams.set("upsert", "true");
+    applyTeam(url, project);
+
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        key: variable.key,
+        value: variable.value,
+        type: variable.type ?? "encrypted",
+        target: [variable.target],
+      }),
+    });
+
+    if (!response.ok) {
+      const details = await getErrorDetails(response);
+
+      throw new Error(
+        `Unable to push ${variable.key} to Vercel: ${response.status}${details}`,
+      );
+    }
   },
 };

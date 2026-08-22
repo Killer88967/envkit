@@ -36,6 +36,19 @@ export interface ProviderAdapter {
     variable: RemoteEnvVariable,
     options?: ProviderOptions,
   ): Promise<string | undefined>;
+
+  upsert(
+    project: ProviderProject,
+    variable: UpsertRemoteEnvVariable,
+    options?: ProviderOptions,
+  ): Promise<void>;
+}
+
+export interface UpsertRemoteEnvVariable {
+  key: string;
+  value: string;
+  target: VercelTarget;
+  type?: string;
 }
 
 export type VercelTarget = "production" | "preview" | "development";
