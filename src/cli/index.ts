@@ -1,6 +1,13 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import pc from "picocolors";
 
+import {
+  printDiffSymbol,
+  printError,
+  printSuccess,
+  printWarning,
+} from "./output";
 import { diffEnv } from "../diff/diff";
 import { diffRemoteEnv } from "../diff/remote";
 import { loadEnvSources, mergeEnvSources } from "../env/load";
@@ -13,25 +20,25 @@ const [, , command, ...args] = process.argv;
 
 function printHelp(): void {
   console.log(`
-envkit
+${pc.bold(pc.cyan("envkit"))}
 
-Environment inspection and synchronization toolkit.
+${pc.dim("Environment inspection and synchronization toolkit.")}
 
-Usage:
-  envkit <command>
+${pc.bold("Usage")}
+  ${pc.cyan("envkit")} <command>
 
-Commands:
-  list                  List detected environment variables
-  diff <left> <right>   Compare two environment files
-  diff vercel           Compare local variables with Vercel
-  doctor                Check the environment setup for common problems
-  vercel                List Vercel environment variables
-  help                  Show this help message
+${pc.bold("Commands")}
+  ${pc.cyan("list")}                  List detected environment variables
+  ${pc.cyan("diff")} <left> <right>   Compare two environment files
+  ${pc.cyan("diff vercel")}           Compare local variables with Vercel
+  ${pc.cyan("doctor")}                Check the environment setup for common problems
+  ${pc.cyan("vercel")}                List Vercel environment variables
+  ${pc.cyan("help")}                  Show this help message
 
-Vercel options:
-  --production
-  --preview
-  --development
+${pc.bold("Vercel options")}
+  ${pc.yellow("--production")}
+  ${pc.yellow("--preview")}
+  ${pc.yellow("--development")}
 `);
 }
 
@@ -44,6 +51,7 @@ function loadEnvFile(path: string) {
   });
 }
 
+/** @deprecated */
 function getDiffSymbol(type: string): string {
   switch (type) {
     case "added":
@@ -93,16 +101,20 @@ function list(): void {
   const keys = Object.keys(values).sort((a, b) => a.localeCompare(b));
 
   if (keys.length === 0) {
-    console.log("No environment variables found.");
+    printWarning("No environment variables found.");
     return;
   }
 
   for (const key of keys) {
     const value = values[key];
+    const secret = looksSecret(key);
     const display = redactEnvValue(key, value);
-    const suffix = looksSecret(key) ? " [secret]" : "";
 
-    console.log(`${key}=${display ?? ""}${suffix}`);
+    console.log(
+      `${pc.bold(key)}=${secret ? pc.dim(display ?? "") : (display ?? "")}${
+        secret ? ` ${pc.yellow("[secret]")}` : ""
+      }`,
+    );
   }
 }
 
@@ -145,7 +157,7 @@ async function diff(): Promise<void> {
       continue;
     }
 
-    console.log(`${getDiffSymbol(entry.type)} ${entry.key}`);
+    console.log(`${printDiffSymbol(entry.type)} ${pc.bold(entry.key)}`);
   }
 }
 
@@ -162,7 +174,7 @@ async function diffVercel(changesOnly: boolean): Promise<void> {
   }
 
   if (!project) {
-    console.error(
+    printError(
       "No linked Vercel project found. Expected .vercel/project.json.",
     );
 
@@ -192,7 +204,7 @@ async function diffVercel(changesOnly: boolean): Promise<void> {
   const differences = diffRemoteEnv(local, remote, target);
 
   if (differences.length === 0) {
-    console.log("No environment variables found locally or on Vercel.");
+    printWarning("No environment variables found locally or on Vercel.");
 
     return;
   }
@@ -202,7 +214,7 @@ async function diffVercel(changesOnly: boolean): Promise<void> {
       continue;
     }
 
-    console.log(`${getDiffSymbol(entry.type)} ${entry.key}`);
+    console.log(`${printDiffSymbol(entry.type)} ${pc.bold(entry.key)}`);
   }
 }
 
@@ -210,10 +222,17 @@ function doctor(): void {
   const checks = runDoctor();
 
   for (const check of checks) {
-    const symbol =
-      check.status === "pass" ? "✓" : check.status === "warn" ? "⚠" : "✗";
-
-    console.log(`${symbol} ${check.message}`);
+    switch (check.status) {
+      case "pass":
+        printSuccess(check.message);
+        break;
+      case "warn":
+        printWarning(check.message);
+        break;
+      case "fail":
+        printError(check.message);
+        break;
+    }
   }
 
   if (checks.some((check) => check.status === "fail")) {
@@ -227,7 +246,7 @@ async function vercel(): Promise<void> {
   try {
     project = vercelProvider.detect();
   } catch (error) {
-    console.error(error instanceof Error ? error.message : String(error));
+    printError(error instanceof Error ? error.message : String(error));
 
     process.exitCode = 1;
     return;
@@ -265,7 +284,7 @@ async function vercel(): Promise<void> {
       const targets =
         variable.targets.length > 0 ? variable.targets.join(", ") : "unknown";
 
-      console.log(`${variable.key} [${targets}]`);
+      console.log(`${pc.bold(variable.key)} ${pc.dim(`[${targets}]`)}`);
     }
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error));
