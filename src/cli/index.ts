@@ -16,6 +16,7 @@ import { parseEnv } from "../env/parse";
 import { looksSecret, redactEnvValue } from "../security/redact";
 import { runDoctor } from "../doctor/doctor";
 import { vercelProvider } from "../providers/vercel";
+import type { VercelTarget } from "../providers/types";
 
 const [, , command, ...args] = process.argv;
 
@@ -52,20 +53,26 @@ function loadEnvFile(path: string) {
   });
 }
 
-function getVercelTarget() {
+function getVercelTarget(): VercelTarget | undefined {
+  const targets: VercelTarget[] = [];
+
   if (args.includes("--production")) {
-    return "production" as const;
+    targets.push("production");
   }
 
   if (args.includes("--preview")) {
-    return "preview" as const;
+    targets.push("preview");
   }
 
   if (args.includes("--development")) {
-    return "development" as const;
+    targets.push("development");
   }
 
-  return undefined;
+  if (targets.length > 1) {
+    throw new Error("Only one Vercel environment can be selected at a time.");
+  }
+
+  return targets[0];
 }
 
 function list(): void {
@@ -178,7 +185,16 @@ async function diffVercel(changesOnly: boolean): Promise<void> {
     return;
   }
 
-  const target = getVercelTarget();
+  let target: VercelTarget | undefined;
+
+  try {
+    target = getVercelTarget();
+  } catch (error) {
+    printError(error instanceof Error ? error.message : String(error));
+
+    process.exitCode = 1;
+    return;
+  }
 
   const differences = diffRemoteEnv(local, remote, target);
 
@@ -243,7 +259,16 @@ async function vercel(): Promise<void> {
   try {
     const variables = await vercelProvider.list(project);
 
-    const target = getVercelTarget();
+    let target: VercelTarget | undefined;
+
+    try {
+      target = getVercelTarget();
+    } catch (error) {
+      printError(error instanceof Error ? error.message : String(error));
+
+      process.exitCode = 1;
+      return;
+    }
 
     const filtered = target
       ? variables.filter((variable) => variable.targets.includes(target))
