@@ -37,9 +37,9 @@ ${pc.bold("Commands")}
   ${pc.cyan("help")}                  Show this help message
 
 ${pc.bold("Vercel options")}
-  ${pc.yellow("--production")}
-  ${pc.yellow("--preview")}
-  ${pc.yellow("--development")}
+  ${pc.yellow("--production")}          Use the production environment
+  ${pc.yellow("--preview")}             Use the preview environment
+  ${pc.yellow("--development")}         Use the development environment
 `);
 }
 
@@ -298,6 +298,8 @@ switch (command) {
 
   default:
     printError(`Unknown command: ${command}`);
-    printError('Run "envkit help" for usage.');
+    console.log(
+      `${pc.dim("Run")} ${pc.cyan("envkit help")} ${pc.dim("for usage.")}`,
+    );
     process.exitCode = 1;
 }
