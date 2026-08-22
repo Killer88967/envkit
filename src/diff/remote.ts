@@ -1,10 +1,13 @@
 import type { EnvRecord } from "../types";
-import type { RemoteEnvVariable, VercelTarget } from "../providers/types";
+import type {
+  ResolvedRemoteEnvVariable,
+  VercelTarget,
+} from "../providers/types";
 import type { EnvDiffEntry } from "./types";
 
 export function diffRemoteEnv(
   local: EnvRecord,
-  remote: RemoteEnvVariable[],
+  remote: ResolvedRemoteEnvVariable[],
   target?: VercelTarget,
 ): EnvDiffEntry[] {
   const filteredRemote = target

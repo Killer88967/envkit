@@ -1,24 +1,27 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { confirm, select } from "@inquirer/prompts";
 import pc from "picocolors";
-import { select, confirm } from "@inquirer/prompts";
 
 import {
   printDiffSymbol,
-  printSuccess,
-  printWarning,
   printError,
   printKeyValue,
+  printSuccess,
+  printWarning,
 } from "./output";
 import { diffEnv } from "../diff/diff";
 import { diffRemoteEnv } from "../diff/remote";
 import { loadEnvSources, mergeEnvSources } from "../env/load";
 import { parseEnv } from "../env/parse";
 import { stringifyEnv } from "../env/stringify";
+import { vercelProvider } from "../providers/vercel";
+import type {
+  ResolvedRemoteEnvVariable,
+  VercelTarget,
+} from "../providers/types";
 import { looksSecret, redactEnvValue } from "../security/redact";
 import { runDoctor } from "../doctor/doctor";
-import { vercelProvider } from "../providers/vercel";
-import type { VercelTarget } from "../providers/types";
 
 const [, , command, ...args] = process.argv;
 
@@ -76,128 +79,6 @@ function getVercelTarget(): VercelTarget | undefined {
   }
 
   return targets[0];
-}
-
-async function pullVercel(): Promise<void> {
-  let project;
-
-  try {
-    project = vercelProvider.detect();
-  } catch (error) {
-    printError(error instanceof Error ? error.message : String(error));
-    process.exitCode = 1;
-    return;
-  }
-
-  if (!project) {
-    printError(
-      "No linked Vercel project found. Expected .vercel/project.json.",
-    );
-    process.exitCode = 1;
-    return;
-  }
-
-  let target: VercelTarget | undefined;
-
-  try {
-    target = await resolveVercelTarget();
-  } catch (error) {
-    printError(error instanceof Error ? error.message : String(error));
-    process.exitCode = 1;
-    return;
-  }
-
-  if (!target) {
-    printError("A Vercel environment is required when pulling variables.");
-    process.exitCode = 1;
-    return;
-  }
-
-  let variables;
-
-  try {
-    variables = await vercelProvider.list(project);
-  } catch (error) {
-    printError(error instanceof Error ? error.message : String(error));
-    process.exitCode = 1;
-    return;
-  }
-
-  const filtered = variables.filter((variable) =>
-    variable.targets.includes(target),
-  );
-
-  if (filtered.length === 0) {
-    printWarning(`No Vercel environment variables found for ${target}.`);
-    return;
-  }
-
-  const readable: Record<string, string> = {};
-  const hidden: string[] = [];
-
-  for (const variable of filtered) {
-    if (variable.value === undefined) {
-      hidden.push(variable.key);
-      continue;
-    }
-
-    readable[variable.key] = variable.value;
-  }
-
-  if (Object.keys(readable).length === 0) {
-    printWarning(
-      `No readable Vercel environment variables found for ${target}.`,
-    );
-
-    if (hidden.length > 0) {
-      printWarning(
-        `${hidden.length} sensitive variable${hidden.length === 1 ? "" : "s"} could not be pulled.`,
-      );
-    }
-
-    return;
-  }
-
-  const filename = `.env.vercel.${target}`;
-  const outputPath = resolve(process.cwd(), filename);
-
-  if (existsSync(outputPath)) {
-    if (!process.stdin.isTTY || !process.stdout.isTTY) {
-      printError(
-        `${filename} already exists and cannot be overwritten non-interactively.`,
-      );
-      process.exitCode = 1;
-      return;
-    }
-
-    const overwrite = await confirm({
-      message: `${filename} already exists. Overwrite it?`,
-      default: false,
-    });
-
-    if (!overwrite) {
-      printWarning("Pull cancelled.");
-      return;
-    }
-  }
-
-  writeFileSync(outputPath, stringifyEnv(readable), "utf8");
-
-  printSuccess(
-    `Pulled ${Object.keys(readable).length} variable${
-      Object.keys(readable).length === 1 ? "" : "s"
-    } to ${filename}.`,
-  );
-
-  if (hidden.length > 0) {
-    printWarning(
-      `${hidden.length} sensitive variable${hidden.length === 1 ? "" : "s"} could not be pulled:`,
-    );
-
-    for (const key of hidden) {
-      console.log(`  ${pc.dim(key)}`);
-    }
-  }
 }
 
 async function resolveVercelTarget(): Promise<VercelTarget | undefined> {
@@ -286,7 +167,6 @@ ${pc.bold("Usage")}
     right = loadEnvFile(rightPath);
   } catch (error) {
     printError(error instanceof Error ? error.message : String(error));
-
     process.exitCode = 1;
     return;
   }
@@ -309,7 +189,6 @@ async function diffVercel(changesOnly: boolean): Promise<void> {
     project = vercelProvider.detect();
   } catch (error) {
     printError(error instanceof Error ? error.message : String(error));
-
     process.exitCode = 1;
     return;
   }
@@ -318,7 +197,6 @@ async function diffVercel(changesOnly: boolean): Promise<void> {
     printError(
       "No linked Vercel project found. Expected .vercel/project.json.",
     );
-
     process.exitCode = 1;
     return;
   }
@@ -335,7 +213,6 @@ async function diffVercel(changesOnly: boolean): Promise<void> {
     remote = await vercelProvider.list(project);
   } catch (error) {
     printError(error instanceof Error ? error.message : String(error));
-
     process.exitCode = 1;
     return;
   }
@@ -346,16 +223,33 @@ async function diffVercel(changesOnly: boolean): Promise<void> {
     target = await resolveVercelTarget();
   } catch (error) {
     printError(error instanceof Error ? error.message : String(error));
-
     process.exitCode = 1;
     return;
   }
 
-  const differences = diffRemoteEnv(local, remote, target);
+  const scopedRemote = target
+    ? remote.filter((variable) => variable.targets.includes(target))
+    : remote;
+
+  let resolvedRemote: ResolvedRemoteEnvVariable[];
+
+  try {
+    resolvedRemote = await Promise.all(
+      scopedRemote.map(async (variable) => ({
+        ...variable,
+        value: await vercelProvider.getValue(project, variable),
+      })),
+    );
+  } catch (error) {
+    printError(error instanceof Error ? error.message : String(error));
+    process.exitCode = 1;
+    return;
+  }
+
+  const differences = diffRemoteEnv(local, resolvedRemote);
 
   if (differences.length === 0) {
     printWarning("No environment variables found locally or on Vercel.");
-
     return;
   }
 
@@ -365,6 +259,154 @@ async function diffVercel(changesOnly: boolean): Promise<void> {
     }
 
     console.log(`${printDiffSymbol(entry.type)} ${pc.bold(entry.key)}`);
+  }
+}
+
+async function pullVercel(): Promise<void> {
+  let project;
+
+  try {
+    project = vercelProvider.detect();
+  } catch (error) {
+    printError(error instanceof Error ? error.message : String(error));
+    process.exitCode = 1;
+    return;
+  }
+
+  if (!project) {
+    printError(
+      "No linked Vercel project found. Expected .vercel/project.json.",
+    );
+    process.exitCode = 1;
+    return;
+  }
+
+  let target: VercelTarget | undefined;
+
+  try {
+    target = await resolveVercelTarget();
+  } catch (error) {
+    printError(error instanceof Error ? error.message : String(error));
+    process.exitCode = 1;
+    return;
+  }
+
+  if (!target) {
+    printError("A Vercel environment is required when pulling variables.");
+    process.exitCode = 1;
+    return;
+  }
+
+  let variables;
+
+  try {
+    variables = await vercelProvider.list(project);
+  } catch (error) {
+    printError(error instanceof Error ? error.message : String(error));
+    process.exitCode = 1;
+    return;
+  }
+
+  const filtered = variables.filter((variable) =>
+    variable.targets.includes(target),
+  );
+
+  if (filtered.length === 0) {
+    printWarning(`No Vercel environment variables found for ${target}.`);
+    return;
+  }
+
+  const readable: Record<string, string> = {};
+  const unreadable: string[] = [];
+
+  for (const variable of filtered) {
+    let value: string | undefined;
+
+    try {
+      value = await vercelProvider.getValue(project, variable);
+    } catch (error) {
+      printError(error instanceof Error ? error.message : String(error));
+      process.exitCode = 1;
+      return;
+    }
+
+    if (value === undefined) {
+      unreadable.push(variable.key);
+      continue;
+    }
+
+    readable[variable.key] = value;
+  }
+
+  if (Object.keys(readable).length === 0) {
+    printWarning(
+      `No readable Vercel environment variables found for ${target}.`,
+    );
+
+    if (unreadable.length > 0) {
+      printWarning(
+        `${unreadable.length} sensitive variable${
+          unreadable.length === 1 ? " is" : "s are"
+        } write-only on Vercel and could not be pulled:`,
+      );
+
+      for (const key of unreadable) {
+        console.log(`  ${pc.dim(key)}`);
+      }
+    }
+
+    return;
+  }
+
+  const filename = `.env.vercel.${target}`;
+  const outputPath = resolve(process.cwd(), filename);
+
+  if (existsSync(outputPath)) {
+    if (!process.stdin.isTTY || !process.stdout.isTTY) {
+      printError(
+        `${filename} already exists and cannot be overwritten non-interactively.`,
+      );
+      process.exitCode = 1;
+      return;
+    }
+
+    let overwrite: boolean;
+
+    try {
+      overwrite = await confirm({
+        message: `${filename} already exists. Overwrite it?`,
+        default: false,
+      });
+    } catch (error) {
+      printError(error instanceof Error ? error.message : String(error));
+      process.exitCode = 1;
+      return;
+    }
+
+    if (!overwrite) {
+      printWarning("Pull cancelled.");
+      return;
+    }
+  }
+
+  writeFileSync(outputPath, stringifyEnv(readable), "utf8");
+
+  const count = Object.keys(readable).length;
+
+  printSuccess(
+    `Pulled ${count} variable${count === 1 ? "" : "s"} to ${filename}.`,
+  );
+
+  if (unreadable.length > 0) {
+    printWarning(
+      `${unreadable.length} sensitive variable${
+        unreadable.length === 1 ? " is" : "s are"
+      } write-only on Vercel and could not be pulled:`,
+    );
+
+    for (const key of unreadable) {
+      console.log(`  ${pc.dim(key)}`);
+    }
   }
 }
 
@@ -397,7 +439,6 @@ async function vercel(): Promise<void> {
     project = vercelProvider.detect();
   } catch (error) {
     printError(error instanceof Error ? error.message : String(error));
-
     process.exitCode = 1;
     return;
   }
@@ -406,7 +447,6 @@ async function vercel(): Promise<void> {
     printError(
       "No linked Vercel project found. Expected .vercel/project.json.",
     );
-
     process.exitCode = 1;
     return;
   }
@@ -420,7 +460,6 @@ async function vercel(): Promise<void> {
       target = await resolveVercelTarget();
     } catch (error) {
       printError(error instanceof Error ? error.message : String(error));
-
       process.exitCode = 1;
       return;
     }
@@ -435,7 +474,6 @@ async function vercel(): Promise<void> {
           ? `No Vercel environment variables found for ${target}.`
           : "No Vercel environment variables found.",
       );
-
       return;
     }
 
@@ -447,7 +485,6 @@ async function vercel(): Promise<void> {
     }
   } catch (error) {
     printError(error instanceof Error ? error.message : String(error));
-
     process.exitCode = 1;
   }
 }

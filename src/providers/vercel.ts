@@ -15,13 +15,19 @@ interface VercelProjectFile {
 interface VercelEnvVariable {
   id: string;
   key: string;
-  value?: string;
   target?: string[];
   type?: string;
 }
 
 interface VercelEnvResponse {
   envs?: VercelEnvVariable[];
+}
+
+interface VercelEnvValueResponse {
+  key?: string;
+  type?: string;
+  value?: string;
+  decrypted?: boolean;
 }
 
 function getToken(explicit?: string): string {
@@ -34,6 +40,35 @@ function getToken(explicit?: string): string {
   }
 
   return token;
+}
+
+async function getErrorDetails(response: Response): Promise<string> {
+  try {
+    const body = await response.json();
+
+    if (body && typeof body === "object" && "error" in body) {
+      const error = body.error;
+
+      if (
+        error &&
+        typeof error === "object" &&
+        "message" in error &&
+        typeof error.message === "string"
+      ) {
+        return `: ${error.message}`;
+      }
+    }
+  } catch {
+    // Ignore malformed error responses.
+  }
+
+  return "";
+}
+
+function applyTeam(url: URL, project: ProviderProject): void {
+  if (project.orgId) {
+    url.searchParams.set("teamId", project.orgId);
+  }
 }
 
 export const vercelProvider: ProviderAdapter = {
@@ -76,9 +111,7 @@ export const vercelProvider: ProviderAdapter = {
       )}/env`,
     );
 
-    if (project.orgId) {
-      url.searchParams.set("teamId", project.orgId);
-    }
+    applyTeam(url, project);
 
     const response = await fetch(url, {
       headers: {
@@ -87,26 +120,7 @@ export const vercelProvider: ProviderAdapter = {
     });
 
     if (!response.ok) {
-      let details = "";
-
-      try {
-        const body = await response.json();
-
-        if (body && typeof body === "object" && "error" in body) {
-          const error = body.error;
-
-          if (
-            error &&
-            typeof error === "object" &&
-            "message" in error &&
-            typeof error.message === "string"
-          ) {
-            details = `: ${error.message}`;
-          }
-        }
-      } catch {
-        // Ignore malformed error responses.
-      }
+      const details = await getErrorDetails(response);
 
       throw new Error(
         `Vercel API request failed with ${response.status}${details}`,
@@ -118,9 +132,46 @@ export const vercelProvider: ProviderAdapter = {
     return (data.envs ?? []).map((env) => ({
       id: env.id,
       key: env.key,
-      value: env.value,
       targets: env.target ?? [],
       type: env.type,
     }));
+  },
+
+  async getValue(project, variable, options = {}): Promise<string | undefined> {
+    if (variable.type === "sensitive") {
+      return undefined;
+    }
+
+    const token = getToken(options.token);
+
+    const url = new URL(
+      `https://api.vercel.com/v1/projects/${encodeURIComponent(
+        project.projectId,
+      )}/env/${encodeURIComponent(variable.id)}`,
+    );
+
+    applyTeam(url, project);
+
+    const response = await fetch(url, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+
+    if (!response.ok) {
+      const details = await getErrorDetails(response);
+
+      throw new Error(
+        `Unable to retrieve ${variable.key} from Vercel: ${response.status}${details}`,
+      );
+    }
+
+    const data = (await response.json()) as VercelEnvValueResponse;
+
+    if (data.type === "sensitive" || data.decrypted === false) {
+      return undefined;
+    }
+
+    return typeof data.value === "string" ? data.value : undefined;
   },
 };
