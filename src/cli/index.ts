@@ -88,7 +88,7 @@ async function resolveVercelTarget(): Promise<VercelTarget | undefined> {
   }
 
   return select<VercelTarget>({
-    message: "Select a Vecrel environment",
+    message: "Select a Vercel environment",
     choices: [
       {
         name: "Production",
