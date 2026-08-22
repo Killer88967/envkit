@@ -4,6 +4,7 @@ export { loadEnvSources, mergeEnvSources } from "./env/load";
 export { diffEnv } from "./diff/diff";
 export { looksSecret, redact, redactEnvValue } from "./security/redact";
 export { runDoctor } from "./doctor/doctor";
+export { vercelProvider } from "./providers/vercel";
 
 // Types
 export type {
@@ -14,3 +15,9 @@ export type {
 } from "./types";
 export type { EnvDiffEntry, EnvDiffType } from "./diff/types";
 export type { DoctorCheck, DoctorCheckStatus } from "./doctor/types";
+export type {
+  ProviderName,
+  ProviderProject,
+  ProviderAdapter,
+  RemoteEnvVariable,
+} from "./providers/types";

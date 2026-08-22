@@ -6,6 +6,7 @@ import { loadEnvSources, mergeEnvSources } from "../env/load";
 import { parseEnv } from "../env/parse";
 import { looksSecret, redactEnvValue } from "../security/redact";
 import { runDoctor } from "../doctor/doctor";
+import { vercelProvider } from "../providers/vercel";
 
 const [, , command, ...args] = process.argv;
 
@@ -22,6 +23,7 @@ Commands:
   list                  List detected environment variables
   diff <left> <right>   Compare two environment files
   doctor                Check the environment setup for common problems
+  vercel                List Vercel environment variables
   help                  Show this help message
 `);
 }
@@ -120,6 +122,49 @@ function doctor(): void {
   }
 }
 
+async function vercel(): Promise<void> {
+  let project;
+
+  try {
+    project = vercelProvider.detect();
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error));
+
+    process.exitCode = 1;
+    return;
+  }
+
+  if (!project) {
+    console.error(
+      "No linked Vercel project found. Expected .vercel/project.json.",
+    );
+
+    process.exitCode = 1;
+    return;
+  }
+
+  try {
+    const variables = await vercelProvider.list(project);
+
+    if (variables.length === 0) {
+      console.log("No Vercel environment variables found.");
+
+      return;
+    }
+
+    for (const variable of variables) {
+      const targets =
+        variable.targets.length > 0 ? variable.targets.join(", ") : "unknown";
+
+      console.log(`${variable.key} [${targets}]`);
+    }
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error));
+
+    process.exitCode = 1;
+  }
+}
+
 switch (command) {
   case "list":
     list();
@@ -131,6 +176,10 @@ switch (command) {
 
   case "doctor":
     doctor();
+    break;
+
+  case "vercel":
+    await vercel();
     break;
 
   case "help":
