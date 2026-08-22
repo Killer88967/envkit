@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import pc from "picocolors";
+import { select } from "@inquirer/prompts";
 
 import {
   printDiffSymbol,
@@ -73,6 +74,36 @@ function getVercelTarget(): VercelTarget | undefined {
   }
 
   return targets[0];
+}
+
+async function resolveVercelTarget(): Promise<VercelTarget | undefined> {
+  const target = getVercelTarget();
+
+  if (target) {
+    return target;
+  }
+
+  if (!process.stdin.isTTY || !process.stdout.isTTY) {
+    return undefined;
+  }
+
+  return select<VercelTarget>({
+    message: "Select a Vecrel environment",
+    choices: [
+      {
+        name: "Production",
+        value: "production",
+      },
+      {
+        name: "Preview",
+        value: "preview",
+      },
+      {
+        name: "Development",
+        value: "development",
+      },
+    ],
+  });
 }
 
 function list(): void {
@@ -188,7 +219,7 @@ async function diffVercel(changesOnly: boolean): Promise<void> {
   let target: VercelTarget | undefined;
 
   try {
-    target = getVercelTarget();
+    target = await resolveVercelTarget();
   } catch (error) {
     printError(error instanceof Error ? error.message : String(error));
 
@@ -262,7 +293,7 @@ async function vercel(): Promise<void> {
     let target: VercelTarget | undefined;
 
     try {
-      target = getVercelTarget();
+      target = await resolveVercelTarget();
     } catch (error) {
       printError(error instanceof Error ? error.message : String(error));
 
