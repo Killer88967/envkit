@@ -19,13 +19,17 @@ Commands:
 }
 
 function list(): void {
-  const sources = loadEnvSources();
+  const showAll = process.argv.includes("--all");
+
+  const sources = loadEnvSources({
+    includeProcessEnv: showAll,
+  });
+
   const values = mergeEnvSources(sources);
   const keys = Object.keys(values).sort((a, b) => a.localeCompare(b));
 
   if (keys.length === 0) {
     console.log("No environment variables found.");
-
     return;
   }
 
@@ -53,6 +57,5 @@ switch (command) {
   default:
     console.error(`Unknown command: ${command}`);
     console.error('Run "envkit help" for usage.');
-
     process.exitCode = 1;
 }

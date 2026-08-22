@@ -7,7 +7,8 @@ const SECRET_PATTERNS = [
   /private[_-]?key/i,
   /client[_-]?secret/i,
   /auth[_-]?key/i,
-  /credentials/i,
+  /credential/i,
+  /credentials?/i,
 ];
 
 export function looksSecret(name: string): boolean {
