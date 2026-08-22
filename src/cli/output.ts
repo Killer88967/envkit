@@ -45,5 +45,7 @@ export function printKeyValue(
   const displayKey = pc.bold(key);
   const displayValue = secret ? pc.dim(value) : value;
 
-  console.log(`${displayKey}=${displayValue}`);
+  const suffix = secret ? ` ${pc.yellow("[secret]")}` : "";
+
+  console.log(`${displayKey}=${displayValue}${suffix}`);
 }

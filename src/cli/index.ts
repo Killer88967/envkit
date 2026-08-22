@@ -4,9 +4,10 @@ import pc from "picocolors";
 
 import {
   printDiffSymbol,
-  printError,
   printSuccess,
   printWarning,
+  printError,
+  printKeyValue,
 } from "./output";
 import { diffEnv } from "../diff/diff";
 import { diffRemoteEnv } from "../diff/remote";
@@ -51,29 +52,6 @@ function loadEnvFile(path: string) {
   });
 }
 
-/** @deprecated */
-function getDiffSymbol(type: string): string {
-  switch (type) {
-    case "added":
-      return "+";
-
-    case "removed":
-      return "-";
-
-    case "changed":
-      return "~";
-
-    case "unchanged":
-      return "=";
-
-    case "unknown":
-      return "?";
-
-    default:
-      return "?";
-  }
-}
-
 function getVercelTarget() {
   if (args.includes("--production")) {
     return "production" as const;
@@ -110,11 +88,7 @@ function list(): void {
     const secret = looksSecret(key);
     const display = redactEnvValue(key, value);
 
-    console.log(
-      `${pc.bold(key)}=${secret ? pc.dim(display ?? "") : (display ?? "")}${
-        secret ? ` ${pc.yellow("[secret]")}` : ""
-      }`,
-    );
+    printKeyValue(key, display ?? "", secret);
   }
 }
 
@@ -130,9 +104,14 @@ async function diff(): Promise<void> {
   const [leftPath, rightPath] = files;
 
   if (!leftPath || !rightPath) {
-    console.error("Usage:");
-    console.error("  envkit diff <left> <right>");
-    console.error("  envkit diff vercel");
+    printError("Missing environment file.");
+
+    console.log(`
+${pc.bold("Usage")}
+  ${pc.cyan("envkit diff")} <left> <right>
+  ${pc.cyan("envkit diff vercel")}
+`);
+
     process.exitCode = 1;
     return;
   }
@@ -144,7 +123,7 @@ async function diff(): Promise<void> {
     left = loadEnvFile(leftPath);
     right = loadEnvFile(rightPath);
   } catch (error) {
-    console.error(error instanceof Error ? error.message : String(error));
+    printError(error instanceof Error ? error.message : String(error));
 
     process.exitCode = 1;
     return;
@@ -167,7 +146,7 @@ async function diffVercel(changesOnly: boolean): Promise<void> {
   try {
     project = vercelProvider.detect();
   } catch (error) {
-    console.error(error instanceof Error ? error.message : String(error));
+    printError(error instanceof Error ? error.message : String(error));
 
     process.exitCode = 1;
     return;
@@ -193,7 +172,7 @@ async function diffVercel(changesOnly: boolean): Promise<void> {
   try {
     remote = await vercelProvider.list(project);
   } catch (error) {
-    console.error(error instanceof Error ? error.message : String(error));
+    printError(error instanceof Error ? error.message : String(error));
 
     process.exitCode = 1;
     return;
@@ -253,7 +232,7 @@ async function vercel(): Promise<void> {
   }
 
   if (!project) {
-    console.error(
+    printError(
       "No linked Vercel project found. Expected .vercel/project.json.",
     );
 
@@ -271,7 +250,7 @@ async function vercel(): Promise<void> {
       : variables;
 
     if (filtered.length === 0) {
-      console.log(
+      printWarning(
         target
           ? `No Vercel environment variables found for ${target}.`
           : "No Vercel environment variables found.",
@@ -287,7 +266,7 @@ async function vercel(): Promise<void> {
       console.log(`${pc.bold(variable.key)} ${pc.dim(`[${targets}]`)}`);
     }
   } catch (error) {
-    console.error(error instanceof Error ? error.message : String(error));
+    printError(error instanceof Error ? error.message : String(error));
 
     process.exitCode = 1;
   }
@@ -318,7 +297,7 @@ switch (command) {
     break;
 
   default:
-    console.error(`Unknown command: ${command}`);
-    console.error('Run "envkit help" for usage.');
+    printError(`Unknown command: ${command}`);
+    printError('Run "envkit help" for usage.');
     process.exitCode = 1;
 }
