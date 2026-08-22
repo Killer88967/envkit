@@ -27,31 +27,12 @@ Commands:
   doctor                Check the environment setup for common problems
   vercel                List Vercel environment variables
   help                  Show this help message
+
+Vercel options:
+  --production
+  --preview
+  --development
 `);
-}
-
-function list(): void {
-  const showAll = process.argv.includes("--all");
-
-  const sources = loadEnvSources({
-    includeProcessEnv: showAll,
-  });
-
-  const values = mergeEnvSources(sources);
-  const keys = Object.keys(values).sort((a, b) => a.localeCompare(b));
-
-  if (keys.length === 0) {
-    console.log("No environment variables found.");
-    return;
-  }
-
-  for (const key of keys) {
-    const value = values[key];
-    const display = redactEnvValue(key, value);
-    const suffix = looksSecret(key) ? " [secret]" : "";
-
-    console.log(`${key}=${display ?? ""}${suffix}`);
-  }
 }
 
 function loadEnvFile(path: string) {
@@ -82,6 +63,46 @@ function getDiffSymbol(type: string): string {
 
     default:
       return "?";
+  }
+}
+
+function getVercelTarget() {
+  if (args.includes("--production")) {
+    return "production" as const;
+  }
+
+  if (args.includes("--preview")) {
+    return "preview" as const;
+  }
+
+  if (args.includes("--development")) {
+    return "development" as const;
+  }
+
+  return undefined;
+}
+
+function list(): void {
+  const showAll = process.argv.includes("--all");
+
+  const sources = loadEnvSources({
+    includeProcessEnv: showAll,
+  });
+
+  const values = mergeEnvSources(sources);
+  const keys = Object.keys(values).sort((a, b) => a.localeCompare(b));
+
+  if (keys.length === 0) {
+    console.log("No environment variables found.");
+    return;
+  }
+
+  for (const key of keys) {
+    const value = values[key];
+    const display = redactEnvValue(key, value);
+    const suffix = looksSecret(key) ? " [secret]" : "";
+
+    console.log(`${key}=${display ?? ""}${suffix}`);
   }
 }
 
@@ -166,7 +187,9 @@ async function diffVercel(changesOnly: boolean): Promise<void> {
     return;
   }
 
-  const differences = diffRemoteEnv(local, remote);
+  const target = getVercelTarget();
+
+  const differences = diffRemoteEnv(local, remote, target);
 
   if (differences.length === 0) {
     console.log("No environment variables found locally or on Vercel.");
@@ -222,13 +245,23 @@ async function vercel(): Promise<void> {
   try {
     const variables = await vercelProvider.list(project);
 
-    if (variables.length === 0) {
-      console.log("No Vercel environment variables found.");
+    const target = getVercelTarget();
+
+    const filtered = target
+      ? variables.filter((variable) => variable.targets.includes(target))
+      : variables;
+
+    if (filtered.length === 0) {
+      console.log(
+        target
+          ? `No Vercel environment variables found for ${target}.`
+          : "No Vercel environment variables found.",
+      );
 
       return;
     }
 
-    for (const variable of variables) {
+    for (const variable of filtered) {
       const targets =
         variable.targets.length > 0 ? variable.targets.join(", ") : "unknown";
 

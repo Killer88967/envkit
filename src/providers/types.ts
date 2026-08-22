@@ -24,3 +24,5 @@ export interface ProviderAdapter {
     },
   ): Promise<RemoteEnvVariable[]>;
 }
+
+export type VercelTarget = "production" | "preview" | "development";
