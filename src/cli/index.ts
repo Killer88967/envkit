@@ -5,6 +5,7 @@ import { diffEnv } from "../diff/diff";
 import { loadEnvSources, mergeEnvSources } from "../env/load";
 import { parseEnv } from "../env/parse";
 import { looksSecret, redactEnvValue } from "../security/redact";
+import { runDoctor } from "../doctor/doctor";
 
 const [, , command, ...args] = process.argv;
 
@@ -20,6 +21,7 @@ Usage:
 Commands:
   list                  List detected environment variables
   diff <left> <right>   Compare two environment files
+  doctor                Check the environment setup for common problems
   help                  Show this help message
 `);
 }
@@ -103,6 +105,21 @@ function diff(): void {
   }
 }
 
+function doctor(): void {
+  const checks = runDoctor();
+
+  for (const check of checks) {
+    const symbol =
+      check.status === "pass" ? "✓" : check.status === "warn" ? "⚠" : "✗";
+
+    console.log(`${symbol} ${check.message}`);
+  }
+
+  if (checks.some((check) => check.status === "fail")) {
+    process.exitCode = 1;
+  }
+}
+
 switch (command) {
   case "list":
     list();
@@ -110,6 +127,10 @@ switch (command) {
 
   case "diff":
     diff();
+    break;
+
+  case "doctor":
+    doctor();
     break;
 
   case "help":
