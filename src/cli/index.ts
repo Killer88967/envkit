@@ -1,7 +1,7 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import pc from "picocolors";
-import { select } from "@inquirer/prompts";
+import { select, confirm } from "@inquirer/prompts";
 
 import {
   printDiffSymbol,
@@ -14,6 +14,7 @@ import { diffEnv } from "../diff/diff";
 import { diffRemoteEnv } from "../diff/remote";
 import { loadEnvSources, mergeEnvSources } from "../env/load";
 import { parseEnv } from "../env/parse";
+import { stringifyEnv } from "../env/stringify";
 import { looksSecret, redactEnvValue } from "../security/redact";
 import { runDoctor } from "../doctor/doctor";
 import { vercelProvider } from "../providers/vercel";
@@ -34,6 +35,7 @@ ${pc.bold("Commands")}
   ${pc.cyan("list")}                  List detected environment variables
   ${pc.cyan("diff")} <left> <right>   Compare two environment files
   ${pc.cyan("diff vercel")}           Compare local variables with Vercel
+  ${pc.cyan("pull vercel")}           Pull Vercel variables to a local file
   ${pc.cyan("doctor")}                Check the environment setup for common problems
   ${pc.cyan("vercel")}                List Vercel environment variables
   ${pc.cyan("help")}                  Show this help message
@@ -74,6 +76,128 @@ function getVercelTarget(): VercelTarget | undefined {
   }
 
   return targets[0];
+}
+
+async function pullVercel(): Promise<void> {
+  let project;
+
+  try {
+    project = vercelProvider.detect();
+  } catch (error) {
+    printError(error instanceof Error ? error.message : String(error));
+    process.exitCode = 1;
+    return;
+  }
+
+  if (!project) {
+    printError(
+      "No linked Vercel project found. Expected .vercel/project.json.",
+    );
+    process.exitCode = 1;
+    return;
+  }
+
+  let target: VercelTarget | undefined;
+
+  try {
+    target = await resolveVercelTarget();
+  } catch (error) {
+    printError(error instanceof Error ? error.message : String(error));
+    process.exitCode = 1;
+    return;
+  }
+
+  if (!target) {
+    printError("A Vercel environment is required when pulling variables.");
+    process.exitCode = 1;
+    return;
+  }
+
+  let variables;
+
+  try {
+    variables = await vercelProvider.list(project);
+  } catch (error) {
+    printError(error instanceof Error ? error.message : String(error));
+    process.exitCode = 1;
+    return;
+  }
+
+  const filtered = variables.filter((variable) =>
+    variable.targets.includes(target),
+  );
+
+  if (filtered.length === 0) {
+    printWarning(`No Vercel environment variables found for ${target}.`);
+    return;
+  }
+
+  const readable: Record<string, string> = {};
+  const hidden: string[] = [];
+
+  for (const variable of filtered) {
+    if (variable.value === undefined) {
+      hidden.push(variable.key);
+      continue;
+    }
+
+    readable[variable.key] = variable.value;
+  }
+
+  if (Object.keys(readable).length === 0) {
+    printWarning(
+      `No readable Vercel environment variables found for ${target}.`,
+    );
+
+    if (hidden.length > 0) {
+      printWarning(
+        `${hidden.length} sensitive variable${hidden.length === 1 ? "" : "s"} could not be pulled.`,
+      );
+    }
+
+    return;
+  }
+
+  const filename = `.env.vercel.${target}`;
+  const outputPath = resolve(process.cwd(), filename);
+
+  if (existsSync(outputPath)) {
+    if (!process.stdin.isTTY || !process.stdout.isTTY) {
+      printError(
+        `${filename} already exists and cannot be overwritten non-interactively.`,
+      );
+      process.exitCode = 1;
+      return;
+    }
+
+    const overwrite = await confirm({
+      message: `${filename} already exists. Overwrite it?`,
+      default: false,
+    });
+
+    if (!overwrite) {
+      printWarning("Pull cancelled.");
+      return;
+    }
+  }
+
+  writeFileSync(outputPath, stringifyEnv(readable), "utf8");
+
+  printSuccess(
+    `Pulled ${Object.keys(readable).length} variable${
+      Object.keys(readable).length === 1 ? "" : "s"
+    } to ${filename}.`,
+  );
+
+  if (hidden.length > 0) {
+    printWarning(
+      `${hidden.length} sensitive variable${hidden.length === 1 ? "" : "s"} could not be pulled:`,
+    );
+
+    for (const key of hidden) {
+      console.log(`  ${pc.dim(key)}`);
+    }
+  }
 }
 
 async function resolveVercelTarget(): Promise<VercelTarget | undefined> {
@@ -335,6 +459,17 @@ switch (command) {
 
   case "diff":
     await diff();
+    break;
+
+  case "pull":
+    if (args[0] === "vercel") {
+      await pullVercel();
+      break;
+    }
+
+    printError("Unknown pull provider.");
+    console.log(`${pc.dim("Usage:")} ${pc.cyan("envkit pull vercel")}`);
+    process.exitCode = 1;
     break;
 
   case "doctor":

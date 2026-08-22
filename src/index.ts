@@ -1,6 +1,7 @@
 // Function
 export { parseEnv } from "./env/parse";
 export { loadEnvSources, mergeEnvSources } from "./env/load";
+export { stringifyEnv } from "./env/stringify";
 export { diffEnv } from "./diff/diff";
 export { diffRemoteEnv } from "./diff/remote";
 export { looksSecret, redact, redactEnvValue } from "./security/redact";
