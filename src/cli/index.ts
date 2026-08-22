@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 import { diffEnv } from "../diff/diff";
+import { diffRemoteEnv } from "../diff/remote";
 import { loadEnvSources, mergeEnvSources } from "../env/load";
 import { parseEnv } from "../env/parse";
 import { looksSecret, redactEnvValue } from "../security/redact";
@@ -22,6 +23,7 @@ Usage:
 Commands:
   list                  List detected environment variables
   diff <left> <right>   Compare two environment files
+  diff vercel           Compare local variables with Vercel
   doctor                Check the environment setup for common problems
   vercel                List Vercel environment variables
   help                  Show this help message
@@ -61,14 +63,43 @@ function loadEnvFile(path: string) {
   });
 }
 
-function diff(): void {
+function getDiffSymbol(type: string): string {
+  switch (type) {
+    case "added":
+      return "+";
+
+    case "removed":
+      return "-";
+
+    case "changed":
+      return "~";
+
+    case "unchanged":
+      return "=";
+
+    case "unknown":
+      return "?";
+
+    default:
+      return "?";
+  }
+}
+
+async function diff(): Promise<void> {
   const changesOnly = args.includes("--changes-only");
   const files = args.filter((arg) => !arg.startsWith("--"));
+
+  if (files[0] === "vercel") {
+    await diffVercel(changesOnly);
+    return;
+  }
 
   const [leftPath, rightPath] = files;
 
   if (!leftPath || !rightPath) {
-    console.error("Usage: envkit diff <left> <right>");
+    console.error("Usage:");
+    console.error("  envkit diff <left> <right>");
+    console.error("  envkit diff vercel");
     process.exitCode = 1;
     return;
   }
@@ -80,9 +111,8 @@ function diff(): void {
     left = loadEnvFile(leftPath);
     right = loadEnvFile(rightPath);
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
+    console.error(error instanceof Error ? error.message : String(error));
 
-    console.error(message);
     process.exitCode = 1;
     return;
   }
@@ -94,16 +124,62 @@ function diff(): void {
       continue;
     }
 
-    const symbol =
-      entry.type === "added"
-        ? "+"
-        : entry.type === "removed"
-          ? "-"
-          : entry.type === "changed"
-            ? "~"
-            : "=";
+    console.log(`${getDiffSymbol(entry.type)} ${entry.key}`);
+  }
+}
 
-    console.log(`${symbol} ${entry.key}`);
+async function diffVercel(changesOnly: boolean): Promise<void> {
+  let project;
+
+  try {
+    project = vercelProvider.detect();
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error));
+
+    process.exitCode = 1;
+    return;
+  }
+
+  if (!project) {
+    console.error(
+      "No linked Vercel project found. Expected .vercel/project.json.",
+    );
+
+    process.exitCode = 1;
+    return;
+  }
+
+  const localSources = loadEnvSources({
+    includeProcessEnv: false,
+  });
+
+  const local = mergeEnvSources(localSources);
+
+  let remote;
+
+  try {
+    remote = await vercelProvider.list(project);
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error));
+
+    process.exitCode = 1;
+    return;
+  }
+
+  const differences = diffRemoteEnv(local, remote);
+
+  if (differences.length === 0) {
+    console.log("No environment variables found locally or on Vercel.");
+
+    return;
+  }
+
+  for (const entry of differences) {
+    if (changesOnly && entry.type === "unchanged") {
+      continue;
+    }
+
+    console.log(`${getDiffSymbol(entry.type)} ${entry.key}`);
   }
 }
 
@@ -171,7 +247,7 @@ switch (command) {
     break;
 
   case "diff":
-    diff();
+    await diff();
     break;
 
   case "doctor":

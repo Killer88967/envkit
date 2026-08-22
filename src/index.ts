@@ -2,6 +2,7 @@
 export { parseEnv } from "./env/parse";
 export { loadEnvSources, mergeEnvSources } from "./env/load";
 export { diffEnv } from "./diff/diff";
+export { diffRemoteEnv } from "./diff/remote";
 export { looksSecret, redact, redactEnvValue } from "./security/redact";
 export { runDoctor } from "./doctor/doctor";
 export { vercelProvider } from "./providers/vercel";
